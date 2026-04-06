@@ -14,6 +14,7 @@ Wraps ONNX Runtime inference behind 5 flat C functions and POD (plain old data) 
   - [Functions](#functions)
 - [Usage from Go (CGO)](#usage-from-go-cgo)
 - [Usage from Rust](#usage-from-rust)
+- [Running examples](#running-examples)
 - [Features](#features)
 - [Memory management](#memory-management)
 - [Why unsafe](#why-unsafe)
@@ -198,6 +199,85 @@ unsafe {
 ```
 
 See `examples/basics.rs` and `examples/bench.rs` for complete examples.
+
+## Running examples
+
+### 1. Download test data
+
+```bash
+# YOLOv4-tiny weights and config
+curl -LO https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights
+curl -LO https://raw.githubusercontent.com/AlexeyAB/darknet/refs/heads/master/cfg/yolov4-tiny.cfg
+
+# Test image
+curl -LO https://raw.githubusercontent.com/AlexeyAB/darknet/refs/heads/master/data/dog.jpg
+
+# COCO class names
+curl -LO https://raw.githubusercontent.com/AlexeyAB/darknet/refs/heads/master/data/coco.names
+```
+
+All downloaded files (`*.weights`, `*.cfg`, `*.names`, `*.jpg`) are in `.gitignore`.
+
+### 2. Convert to ONNX
+
+The bridge works with ONNX models. Convert darknet weights using [darknet2onnx](https://github.com/LdDl/darknet2onnx).
+
+Install darknet2onnx following the [installation guide](https://github.com/LdDl/darknet2onnx?tab=readme-ov-file#installation).
+
+Convert:
+
+```bash
+darknet2onnx \
+  --cfg yolov4-tiny.cfg \
+  --weights yolov4-tiny.weights \
+  --output yolov4-tiny.onnx \
+  --format yolov8
+```
+
+See [darknet2onnx README](https://github.com/LdDl/darknet2onnx#readme) for all options (`--opset`, `--format yolov5|yolov8`, macOS/Windows binaries, etc.).
+
+Prepared ONNX file is considered to be ignored by git.
+
+### 3. Run
+
+```bash
+# Basic detection
+cargo run --release --example basics -- \
+  --model yolov4-tiny.onnx \
+  --image dog.jpg \
+  --width 416 --height 416 \
+  --names coco.names
+
+# Benchmark
+cargo run --release --example bench -- \
+  --model yolov4-tiny.onnx \
+  --image dog.jpg \
+  --width 416 --height 416 \
+  --iters 100
+```
+
+
+If everyting is fine they you should see output like:
+```
+# Basic run
+Image: 768x576, 1327104 bytes
+Model loaded: yolov4-tiny.onnx
+Detections: 3
+  [0] class=dog(16) conf=87.3% bbox=(136, 205, 182x337)
+  [1] class=truck(7) conf=80.8% bbox=(463, 79, 240x91)
+  [2] class=bicycle(1) conf=61.0% bbox=(72, 100, 505x379)
+Done.
+
+# Benchmark run
+Model: yolov4-tiny.onnx
+Image: 768x576
+Warmup: 3 iters
+Benchmark: 100 iters
+
+100 iters in 1.63s
+avg = 16.35 ms/frame
+61.2 FPS
+```
 
 ## Features
 

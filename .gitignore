@@ -1,1 +1,9 @@
 /target
+*.weights
+*.cfg
+*.onnx
+*.engine
+*.rknn
+*.names
+*.jpg
+*.png
