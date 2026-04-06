@@ -16,6 +16,7 @@ Wraps ONNX Runtime inference behind 5 flat C functions and POD (plain old data) 
 - [Usage from Rust](#usage-from-rust)
 - [Features](#features)
 - [Memory management](#memory-management)
+- [Why unsafe](#why-unsafe)
 - [Pre-built binaries](#pre-built-binaries)
 - [License](#license)
 
@@ -108,13 +109,16 @@ typedef enum OdError {
 
 ### Functions
 
-| Function | Description |
-|----------|-------------|
-| `od_model_create(path, w, h)` | Load ONNX model (CPU). Returns opaque `ModelHandle*` or `NULL`. |
-| `od_model_create_cuda(path, w, h)` | Same, but with CUDA EP. Only available with `cuda` feature. |
-| `od_model_free(handle)` | Free a model handle. |
-| `od_model_detect(handle, rgb, w, h, conf, nms, out)` | Run inference. Fills `OdDetections` struct. |
-| `od_detections_free(detections)` | Free detection results. |
+| Function | Feature | Description |
+|----------|---------|-------------|
+| `od_model_create(path, w, h)` | default | Load ONNX model (CPU). Returns `ModelHandle*` or `NULL`. |
+| `od_model_create_cuda(path, w, h)` | `cuda` | ONNX model with CUDA execution provider. |
+| `od_model_create_tensorrt(path, w, h)` | `tensorrt` | ONNX model with TensorRT execution provider. |
+| `od_model_create_trt(engine_path)` | `trt` | Serialized TensorRT engine (no input dims needed). |
+| `od_model_create_rknn(path, num_classes)` | `rknn` | RKNN model for Rockchip NPU. |
+| `od_model_free(handle)` | default | Free a model handle. |
+| `od_model_detect(handle, rgb, w, h, conf, nms, out)` | default | Run inference (any backend). Fills `OdDetections`. |
+| `od_detections_free(detections)` | default | Free detection results. |
 
 See `od_bridge.h` for full signatures and doc comments.
 
@@ -176,7 +180,7 @@ use std::ffi::CString;
 use std::ptr;
 
 let path = CString::new("model.onnx").unwrap();
-let handle = unsafe { od_model_create(path.as_ptr(), 640, 640) };
+let handle = unsafe { od_model_create(path.as_ptr(), 416, 416) };
 assert!(!handle.is_null());
 
 let mut out = OdDetections { data: ptr::null_mut(), len: 0 };
@@ -193,14 +197,21 @@ unsafe {
 }
 ```
 
-See `examples/smoke_test.rs` and `examples/bench.rs` for complete examples.
+See `examples/basics.rs` and `examples/bench.rs` for complete examples.
 
 ## Features
 
-| Feature | Default | Description |
-|---------|---------|-------------|
-| (none) | yes | CPU inference via ONNX Runtime |
-| `cuda` | no | Enables CUDA execution provider, adds `od_model_create_cuda` |
+| Feature | Default | C function added | Backend |
+|---------|---------|-------------------|---------|
+| (none) | yes | `od_model_create` | ONNX Runtime, CPU |
+| `cuda` | no | `od_model_create_cuda` | ONNX Runtime, CUDA EP |
+| `tensorrt` | no | `od_model_create_tensorrt` | ONNX Runtime, TensorRT EP |
+| `trt` | no | `od_model_create_trt` | Native TensorRT (serialized `.engine` file) |
+| `rknn` | no | `od_model_create_rknn` | Rockchip RKNN NPU (`.rknn` file) |
+
+All backends share the same `od_model_detect` / `od_model_free` / `od_detections_free` functions. The `ModelHandle` dispatches to the correct runtime internally.
+
+Note: `od_model_create_trt` takes only `engine_path` (no input dimensions, they are baked into the engine). `od_model_create_rknn` takes `model_path` and `num_classes` instead of input dimensions.
 
 ## Memory management
 
@@ -208,6 +219,19 @@ See `examples/smoke_test.rs` and `examples/bench.rs` for complete examples.
 - `od_model_detect` allocates the results array as a `Box<[OdDetection]>` and passes ownership to the caller via the `OdDetections` struct. The caller must call `od_detections_free` exactly once per successful detect call.
 - Passing NULL to any `_free` function is a safe no-op.
 - Double-free is undefined behavior.
+
+## Why unsafe
+
+Every public function in this crate is `unsafe extern "C"`. This is not a design choice, it is a hard requirement of the C ABI: the whole point of the crate is to expose symbols callable from C, Go, Python, or any other language via FFI. Rust's safety guarantees end at the FFI boundary because the compiler cannot verify what the caller does with raw pointers.
+
+Specifically, `unsafe` is required here for:
+
+- **`extern "C"` functions.** Rust 2024 edition requires `#[unsafe(no_mangle)]` and treats all `extern "C"` fn as unsafe by definition, since the caller is outside Rust's type system.
+- **Raw pointer dereference.** The caller passes `*const c_char`, `*const u8`, `*mut OdDetections`, etc. Rust must trust that these point to valid memory of the correct size.
+- **`Box::into_raw` / `Box::from_raw`.** Heap allocation is transferred across the FFI boundary. The Rust side gives up ownership (`into_raw`), the C side holds the pointer, and Rust reclaims it later (`from_raw`). There is no way to express this ownership transfer in safe Rust.
+- **`slice::from_raw_parts`.** Building a slice from a raw pixel pointer requires trusting the caller-provided length.
+
+All unsafe operations are confined to the FFI boundary layer. The actual inference logic inside `od_opencv` is safe Rust. The bridge does the minimum unsafe work needed to convert between C ABI conventions and Rust types.
 
 ## Pre-built binaries
 

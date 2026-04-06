@@ -736,6 +736,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -940,6 +950,8 @@ dependencies = [
  "lazy_static",
  "ndarray",
  "ort",
+ "rknn-runtime",
+ "tensorrt-infer",
 ]
 
 [[package]]
@@ -1290,6 +1302,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
 
 [[package]]
+name = "rknn-runtime"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d9d2157f170556d107a877c330e6d0aa237e5b7b05f9f19b076ad45d9350a38"
+dependencies = [
+ "libloading",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1479,6 +1500,24 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys",
+]
+
+[[package]]
+name = "tensorrt-infer"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae77324aabd35167c064c0f4053643639ffd7ec0c685ed5f8e714d54047e4b0"
+dependencies = [
+ "tensorrt-infer-sys",
+]
+
+[[package]]
+name = "tensorrt-infer-sys"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fca189a9866a6435786ee14e2d57674810ed0a55f9205c8d7fbc738ccae4d5ec"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

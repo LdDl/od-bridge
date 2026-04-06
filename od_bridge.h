@@ -33,7 +33,7 @@ typedef enum OdError {
 } OdError;
 
 /**
- * Opaque model handle wrapping `ModelUltralyticsOrt`.
+ * Opaque model handle. Created by any `od_model_create_*` function.
  */
 typedef struct ModelHandle ModelHandle;
 
@@ -86,7 +86,7 @@ typedef struct OdDetections {
  *
  * # Parameters
  * - `model_path`: null-terminated path to `.onnx` file
- * - `input_w`, `input_h`: model input dimensions (e.g. 640, 640)
+ * - `input_w`, `input_h`: model input dimensions (e.g. 416, 416)
  *
  * # Returns
  * Opaque pointer, or null on error.
@@ -97,7 +97,7 @@ typedef struct OdDetections {
 struct ModelHandle *od_model_create(const char *model_path, uint32_t input_w, uint32_t input_h);
 
 /**
- * Create a model from an ONNX file with CUDA acceleration.
+ * Create a model from an ONNX file with CUDA execution provider.
  *
  * # Safety
  * `model_path` must be a valid null-terminated C string.
@@ -105,6 +105,36 @@ struct ModelHandle *od_model_create(const char *model_path, uint32_t input_w, ui
 struct ModelHandle *od_model_create_cuda(const char *model_path,
                                          uint32_t input_w,
                                          uint32_t input_h);
+
+/**
+ * Create a model from an ONNX file with TensorRT execution provider (via ORT).
+ *
+ * # Safety
+ * `model_path` must be a valid null-terminated C string.
+ */
+struct ModelHandle *od_model_create_tensorrt(const char *model_path,
+                                             uint32_t input_w,
+                                             uint32_t input_h);
+
+/**
+ * Create a model from a serialized TensorRT engine file (native TensorRT, no ORT).
+ *
+ * # Safety
+ * `engine_path` must be a valid null-terminated C string.
+ */
+struct ModelHandle *od_model_create_trt(const char *engine_path);
+
+/**
+ * Create a model from an RKNN model file (Rockchip NPU).
+ *
+ * # Parameters
+ * - `model_path`: null-terminated path to `.rknn` file
+ * - `num_classes`: number of classes the model was trained on
+ *
+ * # Safety
+ * `model_path` must be a valid null-terminated C string.
+ */
+struct ModelHandle *od_model_create_rknn(const char *model_path, uint32_t num_classes);
 
 /**
  * Free a model handle.
@@ -117,8 +147,10 @@ void od_model_free(struct ModelHandle *handle);
 /**
  * Run detection on an RGB image.
  *
+ * Works with any backend: the handle dispatches to the correct runtime internally.
+ *
  * # Parameters
- * - `handle`: model handle
+ * - `handle`: model handle from any `od_model_create_*` function
  * - `pixels_rgb`: pointer to `width * height * 3` bytes (RGB, row-major, HWC)
  * - `img_w`, `img_h`: image dimensions in pixels
  * - `conf_threshold`: confidence threshold (e.g. 0.3)

@@ -11,6 +11,7 @@ use std::slice;
 use ndarray::Array3;
 use od_opencv::model_factory::Model;
 use od_opencv::model_trait::ObjectDetector;
+use od_opencv::BBox;
 
 /// Single detection result (flat, no pointers, safe for CGO memcpy).
 #[repr(C)]
@@ -55,17 +56,69 @@ pub enum OdError {
     ImageConvertFailed = 4,
 }
 
-/// Opaque model handle wrapping `ModelUltralyticsOrt`.
+/// Backend-specific model variant.
+enum ModelInner {
+    /// ONNX Runtime (CPU, CUDA, or TensorRT execution provider).
+    Ort(od_opencv::backend_ort::ModelUltralyticsOrt),
+    /// Native TensorRT engine.
+    #[cfg(feature = "trt")]
+    Trt(od_opencv::backend_tensorrt::ModelUltralyticsRt),
+    /// Rockchip RKNN NPU.
+    #[cfg(feature = "rknn")]
+    Rknn(od_opencv::backend_rknn::ModelUltralyticsRknn),
+}
+
+/// Opaque model handle. Created by any `od_model_create_*` function.
 pub struct ModelHandle {
-    /// Underlying ONNX Runtime model from od_opencv.
-    inner: od_opencv::backend_ort::ModelUltralyticsOrt,
+    inner: ModelInner,
+}
+
+impl ModelHandle {
+    /// Run detection on an `ImageBuffer`, dispatching to the active backend.
+    fn detect(
+        &mut self,
+        img: &od_opencv::ImageBuffer,
+        conf: f32,
+        nms: f32,
+    ) -> Result<(Vec<BBox>, Vec<usize>, Vec<f32>), OdError> {
+        match &mut self.inner {
+            ModelInner::Ort(m) => m.detect(img, conf, nms).map_err(|e| {
+                eprintln!("od_model_detect (ort): {e:?}");
+                OdError::DetectionFailed
+            }),
+            #[cfg(feature = "trt")]
+            ModelInner::Trt(m) => m.detect(img, conf, nms).map_err(|e| {
+                eprintln!("od_model_detect (trt): {e:?}");
+                OdError::DetectionFailed
+            }),
+            #[cfg(feature = "rknn")]
+            ModelInner::Rknn(m) => m.detect(img, conf, nms).map_err(|e| {
+                eprintln!("od_model_detect (rknn): {e:?}");
+                OdError::DetectionFailed
+            }),
+        }
+    }
+}
+
+/// Helper: parse a C string pointer into a Rust `&str`.
+/// Returns `None` if the pointer is null or not valid UTF-8.
+unsafe fn parse_cstr(p: *const c_char) -> Option<&'static str> {
+    if p.is_null() {
+        return None;
+    }
+    unsafe { CStr::from_ptr(p) }.to_str().ok()
+}
+
+/// Helper: allocate a `ModelHandle` on the heap and return a raw pointer.
+fn into_handle(inner: ModelInner) -> *mut ModelHandle {
+    Box::into_raw(Box::new(ModelHandle { inner }))
 }
 
 /// Create a model from an ONNX file (ORT backend, CPU).
 ///
 /// # Parameters
 /// - `model_path`: null-terminated path to `.onnx` file
-/// - `input_w`, `input_h`: model input dimensions (e.g. 640, 640)
+/// - `input_w`, `input_h`: model input dimensions (e.g. 416, 416)
 ///
 /// # Returns
 /// Opaque pointer, or null on error.
@@ -78,16 +131,11 @@ pub unsafe extern "C" fn od_model_create(
     input_w: u32,
     input_h: u32,
 ) -> *mut ModelHandle {
-    if model_path.is_null() {
+    let Some(path) = (unsafe { parse_cstr(model_path) }) else {
         return ptr::null_mut();
-    }
-    let path = match unsafe { CStr::from_ptr(model_path) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return ptr::null_mut(),
     };
-
     match Model::ort(path, (input_w, input_h)) {
-        Ok(model) => Box::into_raw(Box::new(ModelHandle { inner: model })),
+        Ok(model) => into_handle(ModelInner::Ort(model)),
         Err(e) => {
             eprintln!("od_model_create: {e:?}");
             ptr::null_mut()
@@ -95,7 +143,7 @@ pub unsafe extern "C" fn od_model_create(
     }
 }
 
-/// Create a model from an ONNX file with CUDA acceleration.
+/// Create a model from an ONNX file with CUDA execution provider.
 ///
 /// # Safety
 /// `model_path` must be a valid null-terminated C string.
@@ -106,18 +154,83 @@ pub unsafe extern "C" fn od_model_create_cuda(
     input_w: u32,
     input_h: u32,
 ) -> *mut ModelHandle {
-    if model_path.is_null() {
+    let Some(path) = (unsafe { parse_cstr(model_path) }) else {
         return ptr::null_mut();
-    }
-    let path = match unsafe { CStr::from_ptr(model_path) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return ptr::null_mut(),
     };
-
     match Model::ort_cuda(path, (input_w, input_h)) {
-        Ok(model) => Box::into_raw(Box::new(ModelHandle { inner: model })),
+        Ok(model) => into_handle(ModelInner::Ort(model)),
         Err(e) => {
             eprintln!("od_model_create_cuda: {e:?}");
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Create a model from an ONNX file with TensorRT execution provider (via ORT).
+///
+/// # Safety
+/// `model_path` must be a valid null-terminated C string.
+#[cfg(feature = "tensorrt")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn od_model_create_tensorrt(
+    model_path: *const c_char,
+    input_w: u32,
+    input_h: u32,
+) -> *mut ModelHandle {
+    let Some(path) = (unsafe { parse_cstr(model_path) }) else {
+        return ptr::null_mut();
+    };
+    match Model::ort_tensorrt(path, (input_w, input_h)) {
+        Ok(model) => into_handle(ModelInner::Ort(model)),
+        Err(e) => {
+            eprintln!("od_model_create_tensorrt: {e:?}");
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Create a model from a serialized TensorRT engine file (native TensorRT, no ORT).
+///
+/// # Safety
+/// `engine_path` must be a valid null-terminated C string.
+#[cfg(feature = "trt")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn od_model_create_trt(
+    engine_path: *const c_char,
+) -> *mut ModelHandle {
+    let Some(path) = (unsafe { parse_cstr(engine_path) }) else {
+        return ptr::null_mut();
+    };
+    match Model::tensorrt(path) {
+        Ok(model) => into_handle(ModelInner::Trt(model)),
+        Err(e) => {
+            eprintln!("od_model_create_trt: {e:?}");
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Create a model from an RKNN model file (Rockchip NPU).
+///
+/// # Parameters
+/// - `model_path`: null-terminated path to `.rknn` file
+/// - `num_classes`: number of classes the model was trained on
+///
+/// # Safety
+/// `model_path` must be a valid null-terminated C string.
+#[cfg(feature = "rknn")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn od_model_create_rknn(
+    model_path: *const c_char,
+    num_classes: u32,
+) -> *mut ModelHandle {
+    let Some(path) = (unsafe { parse_cstr(model_path) }) else {
+        return ptr::null_mut();
+    };
+    match Model::rknn(path, num_classes as usize) {
+        Ok(model) => into_handle(ModelInner::Rknn(model)),
+        Err(e) => {
+            eprintln!("od_model_create_rknn: {e:?}");
             ptr::null_mut()
         }
     }
@@ -136,8 +249,10 @@ pub unsafe extern "C" fn od_model_free(handle: *mut ModelHandle) {
 
 /// Run detection on an RGB image.
 ///
+/// Works with any backend: the handle dispatches to the correct runtime internally.
+///
 /// # Parameters
-/// - `handle`: model handle
+/// - `handle`: model handle from any `od_model_create_*` function
 /// - `pixels_rgb`: pointer to `width * height * 3` bytes (RGB, row-major, HWC)
 /// - `img_w`, `img_h`: image dimensions in pixels
 /// - `conf_threshold`: confidence threshold (e.g. 0.3)
@@ -161,7 +276,6 @@ pub unsafe extern "C" fn od_model_detect(
     nms_threshold: f32,
     out: *mut OdDetections,
 ) -> OdError {
-    // Validate arguments
     if handle.is_null() || pixels_rgb.is_null() || out.is_null() {
         return OdError::InvalidArgument;
     }
@@ -169,12 +283,11 @@ pub unsafe extern "C" fn od_model_detect(
         return OdError::InvalidArgument;
     }
 
-    let model = unsafe { &mut (*handle).inner };
+    let model = unsafe { &mut *handle };
     let h = img_h as usize;
     let w = img_w as usize;
     let n_bytes = h * w * 3;
 
-    // Zero-copy view into Go's memory, then build Array3
     let rgb_slice = unsafe { slice::from_raw_parts(pixels_rgb, n_bytes) };
     let arr = match Array3::from_shape_vec((h, w, 3), rgb_slice.to_vec()) {
         Ok(a) => a,
@@ -189,19 +302,16 @@ pub unsafe extern "C" fn od_model_detect(
 
     let img_buf = od_opencv::ImageBuffer::from_rgb(arr);
 
-    // Run detection
-    let (bboxes, class_ids, confidences) =
-        match model.detect(&img_buf, conf_threshold, nms_threshold) {
-            Ok(result) => result,
-            Err(e) => {
-                eprintln!("od_model_detect: {e:?}");
-                unsafe {
-                    (*out).data = ptr::null_mut();
-                    (*out).len = 0;
-                }
-                return OdError::DetectionFailed;
+    let (bboxes, class_ids, confidences) = match model.detect(&img_buf, conf_threshold, nms_threshold) {
+        Ok(result) => result,
+        Err(e) => {
+            unsafe {
+                (*out).data = ptr::null_mut();
+                (*out).len = 0;
             }
-        };
+            return e;
+        }
+    };
 
     let count = bboxes.len();
     if count == 0 {
@@ -212,7 +322,6 @@ pub unsafe extern "C" fn od_model_detect(
         return OdError::Ok;
     }
 
-    // Allocate results
     let mut results: Vec<OdDetection> = Vec::with_capacity(count);
     for i in 0..count {
         results.push(OdDetection {

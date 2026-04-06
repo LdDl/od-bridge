@@ -16,6 +16,9 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 cuda = ["od_opencv/ort-cuda-backend"]
+tensorrt = ["od_opencv/ort-tensorrt-backend"]
+trt = ["od_opencv/tensorrt-backend"]
+rknn = ["od_opencv/rknn-backend"]
 
 [dependencies]
 od_opencv = { version = "0.8.2", default-features = false, features = ["ort-backend"] }
