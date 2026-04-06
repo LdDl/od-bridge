@@ -1,0 +1,28 @@
+[package]
+name = "od-bridge"
+version = "0.1.0"
+edition = "2024"
+authors = ["LdDl <sexykdi@gmail.com>"]
+description = "C ABI bridge for od_opencv, designed for Go CGO integration"
+license = "MIT"
+repository = "https://github.com/LdDl/od-bridge"
+keywords = ["object-detection", "onnx", "ffi", "cgo", "yolo"]
+categories = ["computer-vision", "external-ffi-bindings"]
+readme = "README.md"
+rust-version = "1.85"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+cuda = ["od_opencv/ort-cuda-backend"]
+
+[dependencies]
+od_opencv = { version = "0.8.2", default-features = false, features = ["ort-backend"] }
+ndarray = "0.17.2"
+
+[dev-dependencies]
+image = "0.25.10"
+
+[build-dependencies]
+cbindgen = "0.29.2"
