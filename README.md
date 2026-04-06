@@ -9,6 +9,7 @@ Wraps ONNX Runtime inference behind 5 flat C functions and POD (plain old data) 
 - [How it works](#how-it-works)
 - [Build](#build)
 - [Header generation (cbindgen)](#header-generation-cbindgen)
+- [Installation](#installation)
 - [C API](#c-api)
   - [Types](#types)
   - [Functions](#functions)
@@ -60,22 +61,79 @@ The C header `od_bridge.h` is generated in the crate root on every build (see be
 The file `od_bridge.h` is not maintained by hand. It is regenerated automatically on every `cargo build` via a [build script](build.rs):
 
 ```rust
-// build.rs
-fn main() {
-    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    cbindgen::Builder::new()
-        .with_crate(&crate_dir)
-        .with_language(cbindgen::Language::C)
-        .with_include_guard("OD_BRIDGE_H")
-        .generate()
-        .expect("Unable to generate C bindings")
-        .write_to_file("od_bridge.h");
-}
+// build.rs (simplified)
+cbindgen::Builder::new()
+    .with_crate(&crate_dir)
+    .with_language(cbindgen::Language::C)
+    .with_include_guard("OD_BRIDGE_H")
+    .generate()
+    .expect("Unable to generate C bindings")
+    .write_to_file("od_bridge.h");
 ```
 
 `cbindgen` inspects `#[repr(C)]` structs, enums, and `extern "C"` functions in `src/lib.rs` and produces a standard C header with typedefs, function prototypes, and doc comments. If you add or change a public FFI symbol, the header updates on the next build.
 
+The same build script also generates `od_bridge.pc` from the [od_bridge.pc.in](od_bridge.pc.in) template, substituting `@PREFIX@` and `@VERSION@` placeholders. This `.pc` file is used by `pkg-config` during installation (see below).
+
 The `cbindgen` configuration lives in [cbindgen.toml](cbindgen.toml).
+
+## Installation
+
+After building, install the shared library, header, and pkg-config file:
+
+```bash
+sudo mkdir -p /usr/local/include/od-bridge
+sudo cp od_bridge.h /usr/local/include/od-bridge/
+
+PC_DIR=$(pkg-config --variable pc_path pkg-config | cut -d: -f1)
+sudo cp od_bridge.pc "$PC_DIR/"
+
+sudo cp target/release/libod_bridge.so /usr/local/lib/
+
+# Ensure /usr/local/lib is in the linker search path (needed on some distros, e.g. Arch (I use it btw))
+echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
+sudo ldconfig
+```
+
+Verify:
+
+```bash
+# pkg-config finds the library
+pkg-config --cflags --libs od_bridge
+
+# Library is in the linker cache
+ldconfig -p | grep od_bridge
+```
+
+After this, downstream projects can use `pkg-config` to resolve paths automatically. For example, in Go CGO:
+
+```go
+/*
+#cgo pkg-config: od_bridge
+#include "od_bridge.h"
+*/
+import "C"
+```
+
+If `pkg-config` is not available on the system, you can link manually with `-lod_bridge -lm -ldl -lpthread` and `-I/usr/local/include/od-bridge`.
+
+### Custom prefix
+
+By default the `.pc` file uses `/usr/local` as prefix. To change it, set `OD_BRIDGE_PREFIX` before building:
+
+```bash
+OD_BRIDGE_PREFIX=/opt/od-bridge cargo build --release
+```
+
+### Uninstall
+
+```bash
+PC_DIR=$(pkg-config --variable pc_path pkg-config | cut -d: -f1)
+sudo rm /usr/local/lib/libod_bridge.so
+sudo rm "$PC_DIR/od_bridge.pc"
+sudo rm -r /usr/local/include/od-bridge
+sudo ldconfig
+```
 
 ## C API
 

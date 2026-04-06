@@ -1,4 +1,6 @@
 /target
+od_bridge.pc
+od_bridge.h
 *.weights
 *.cfg
 *.onnx

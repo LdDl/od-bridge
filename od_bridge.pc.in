@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+libdir=${prefix}/lib
+includedir=${prefix}/include/od-bridge
+
+Name: od_bridge
+Description: C ABI bridge for od_opencv (ONNX Runtime inference)
+URL: https://github.com/LdDl/od-bridge
+Version: @VERSION@
+Libs: -L${libdir} -lod_bridge -lm -ldl -lpthread
+Cflags: -I${includedir}
