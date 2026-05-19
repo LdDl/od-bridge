@@ -4,7 +4,9 @@ These examples demonstrate calling od-bridge from Go via CGO.
 
 ## Prerequisites
 
-1. Build od-bridge:
+### Option A: Install from source
+
+1. Build od-bridge (requires Rust 1.85+):
 
 ```bash
 cd /path/to/od-bridge
@@ -21,10 +23,22 @@ PC_DIR=$(pkg-config --variable pc_path pkg-config | cut -d: -f1)
 sudo cp od_bridge.pc "$PC_DIR/"
 
 sudo cp target/release/libod_bridge.so /usr/local/lib/
+sudo cp target/release/libod_bridge.a  /usr/local/lib/
+
+# Ensure /usr/local/lib is in the linker search path (needed on some distros, e.g. Arch)
+echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
 sudo ldconfig
 ```
 
-3. Verify:
+### Option B: Install from pre-built release (no Rust required)
+
+```bash
+curl -L https://github.com/LdDl/od-bridge/releases/download/vX.Y.Z/od-bridge-linux-amd64.tar.gz | tar xz
+cd od-bridge-linux-amd64
+./install.sh
+```
+
+### Verify
 
 ```bash
 pkg-config --cflags --libs od_bridge
@@ -65,6 +79,8 @@ go run . -detector ../../yunet_n_320_320.onnx \
          -recognizer ../../w600k_mbf.onnx \
          -image ../../oscar_selfies.jpg
 ```
+
+All examples save visual results to `output.jpg` (use `-output` flag to change the path).
 
 ## Running without pkg-config
 
