@@ -19,11 +19,13 @@ cargo build --release
 sudo mkdir -p /usr/local/include/od-bridge
 sudo cp od_bridge.h /usr/local/include/od-bridge/
 
-PC_DIR=$(pkg-config --variable pc_path pkg-config | cut -d: -f1)
-sudo cp od_bridge.pc "$PC_DIR/"
-
 sudo cp target/release/libod_bridge.so /usr/local/lib/
 sudo cp target/release/libod_bridge.a  /usr/local/lib/
+
+# Generate and install pkg-config file
+VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+sed -e "s|@PREFIX@|/usr/local|" -e "s|@VERSION@|${VERSION}|" \
+  od_bridge.pc.in | sudo tee /usr/local/lib/pkgconfig/od_bridge.pc > /dev/null
 
 # Ensure /usr/local/lib is in the linker search path (needed on some distros, e.g. Arch)
 echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf

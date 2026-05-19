@@ -87,11 +87,13 @@ After building, install the shared library, static library, header, and pkg-conf
 sudo mkdir -p /usr/local/include/od-bridge
 sudo cp od_bridge.h /usr/local/include/od-bridge/
 
-PC_DIR=$(pkg-config --variable pc_path pkg-config | cut -d: -f1)
-sudo cp od_bridge.pc "$PC_DIR/"
-
 sudo cp target/release/libod_bridge.so /usr/local/lib/
 sudo cp target/release/libod_bridge.a  /usr/local/lib/
+
+# Generate and install pkg-config file
+VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+sed -e "s|@PREFIX@|/usr/local|" -e "s|@VERSION@|${VERSION}|" \
+  od_bridge.pc.in | sudo tee /usr/local/lib/pkgconfig/od_bridge.pc > /dev/null
 
 # If built with --features cuda (or tensorrt), install ORT provider libraries:
 # sudo cp target/release/libonnxruntime_providers_cuda.so /usr/local/lib/
