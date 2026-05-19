@@ -21,7 +21,7 @@ trt = ["od_opencv/tensorrt-backend"]
 rknn = ["od_opencv/rknn-backend"]
 
 [dependencies]
-od_opencv = { version = "0.8.2", default-features = false, features = ["ort-backend"] }
+od_opencv = { version = "0.10.1", default-features = false, features = ["ort-backend"] }
 ndarray = "0.17.2"
 
 [dev-dependencies]
