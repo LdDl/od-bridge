@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            artifact: od-bridge-linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+            artifact: od-bridge-linux-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          STAGING=${{ matrix.artifact }}
+          mkdir -p "${STAGING}/lib" "${STAGING}/include/od-bridge" "${STAGING}/lib/pkgconfig"
+
+          # Library
+          cp target/${{ matrix.target }}/release/libod_bridge.so "${STAGING}/lib/"
+          cp target/${{ matrix.target }}/release/libod_bridge.a  "${STAGING}/lib/"
+
+          # Header
+          cp od_bridge.h "${STAGING}/include/od-bridge/"
+
+          # pkg-config (prefix=/usr/local by default, user can sed it)
+          sed -e "s|@PREFIX@|/usr/local|" -e "s|@VERSION@|${VERSION}|" \
+            od_bridge.pc.in > "${STAGING}/lib/pkgconfig/od_bridge.pc"
+
+          # Install script
+          cat > "${STAGING}/install.sh" <<'SCRIPT'
+          #!/bin/bash
+          set -e
+          PREFIX="${1:-/usr/local}"
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+
+          sudo cp "${DIR}/lib/libod_bridge.so" "${PREFIX}/lib/"
+          sudo cp "${DIR}/lib/libod_bridge.a"  "${PREFIX}/lib/"
+          sudo mkdir -p "${PREFIX}/include/od-bridge"
+          sudo cp "${DIR}/include/od-bridge/od_bridge.h" "${PREFIX}/include/od-bridge/"
+
+          # Update pkg-config prefix if non-default
+          if [ "${PREFIX}" != "/usr/local" ]; then
+            sed -i "s|prefix=/usr/local|prefix=${PREFIX}|" "${DIR}/lib/pkgconfig/od_bridge.pc"
+          fi
+
+          PC_DIR=$(pkg-config --variable pc_path pkg-config 2>/dev/null | cut -d: -f1 || echo "${PREFIX}/lib/pkgconfig")
+          sudo mkdir -p "${PC_DIR}"
+          sudo cp "${DIR}/lib/pkgconfig/od_bridge.pc" "${PC_DIR}/"
+
+          sudo ldconfig
+          echo "od-bridge installed to ${PREFIX}"
+          pkg-config --modversion od_bridge
+          SCRIPT
+          chmod +x "${STAGING}/install.sh"
+
+          tar czf "${STAGING}.tar.gz" "${STAGING}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.tar.gz
+
+  # CUDA build (x86_64 only)
+  build-cuda:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build with CUDA feature
+        run: cargo build --release --features cuda
+
+      - name: Package
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          STAGING=od-bridge-linux-amd64-cuda
+          mkdir -p "${STAGING}/lib" "${STAGING}/include/od-bridge" "${STAGING}/lib/pkgconfig"
+
+          cp target/release/libod_bridge.so "${STAGING}/lib/"
+          cp target/release/libod_bridge.a  "${STAGING}/lib/"
+
+          # Copy ORT CUDA provider libs if present
+          cp target/release/libonnxruntime_providers_cuda.so   "${STAGING}/lib/" 2>/dev/null || true
+          cp target/release/libonnxruntime_providers_shared.so "${STAGING}/lib/" 2>/dev/null || true
+
+          cp od_bridge.h "${STAGING}/include/od-bridge/"
+
+          sed -e "s|@PREFIX@|/usr/local|" -e "s|@VERSION@|${VERSION}|" \
+            od_bridge.pc.in > "${STAGING}/lib/pkgconfig/od_bridge.pc"
+
+          tar czf "${STAGING}.tar.gz" "${STAGING}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: od-bridge-linux-amd64-cuda
+          path: od-bridge-linux-amd64-cuda.tar.gz
+
+  release:
+    needs: [build, build-cuda]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            od-bridge-linux-amd64.tar.gz
+            od-bridge-linux-arm64.tar.gz
+            od-bridge-linux-amd64-cuda.tar.gz
