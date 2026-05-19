@@ -137,6 +137,7 @@ OD_BRIDGE_PREFIX=/opt/od-bridge cargo build --release
 ```bash
 PC_DIR=$(pkg-config --variable pc_path pkg-config | cut -d: -f1)
 sudo rm /usr/local/lib/libod_bridge.so
+sudo rm -f /usr/local/lib/libod_bridge.a
 sudo rm -f /usr/local/lib/libonnxruntime_providers_cuda.so
 sudo rm -f /usr/local/lib/libonnxruntime_providers_shared.so
 sudo rm "$PC_DIR/od_bridge.pc"
@@ -231,9 +232,7 @@ typedef struct FaceDetectionResults {
 
 ```go
 /*
-#cgo LDFLAGS: -L/path/to/od-bridge/target/release -lod_bridge -lm -ldl -lpthread
-#cgo CFLAGS: -I/path/to/od-bridge
-
+#cgo pkg-config: od_bridge
 #include "od_bridge.h"
 #include <stdlib.h>
 */
@@ -323,10 +322,13 @@ func main() {
 }
 ```
 
-At runtime, set `LD_LIBRARY_PATH` to include the directory with `libod_bridge.so`:
+If od-bridge is installed system-wide (see [Installation](#installation)), `pkg-config` resolves everything automatically. Otherwise, point CGO at the build directory:
 
 ```bash
-LD_LIBRARY_PATH=/path/to/od-bridge/target/release go run .
+CGO_LDFLAGS="-L/path/to/od-bridge/target/release -lod_bridge -lm -ldl -lpthread" \
+CGO_CFLAGS="-I/path/to/od-bridge" \
+LD_LIBRARY_PATH=/path/to/od-bridge/target/release \
+go run .
 ```
 
 For complete, runnable Go examples see [examples_go/](examples_go/).
@@ -454,6 +456,8 @@ Each example has build instructions in the source file header.
 
 ## Features
 
+### Object detection (YOLO)
+
 | Feature | Default | C function added | Backend |
 |---------|---------|-------------------|---------|
 | (none) | yes | `od_model_create` | ONNX Runtime, CPU |
@@ -465,6 +469,16 @@ Each example has build instructions in the source file header.
 All backends share the same `od_model_detect` / `od_model_free` / `od_detections_free` functions. The `ModelHandle` dispatches to the correct runtime internally.
 
 Note: `od_model_create_trt` takes only `engine_path` (no input dimensions, they are baked into the engine). `od_model_create_rknn` takes `model_path` and `num_classes` instead of input dimensions.
+
+### Face pipeline (YuNet + ArcFace)
+
+| Feature | Default | C function added | Backend |
+|---------|---------|-------------------|---------|
+| (none) | yes | `face_pipeline_create` | ONNX Runtime, CPU |
+| `cuda` | no | `face_pipeline_create_cuda` | ONNX Runtime, CUDA EP |
+| `tensorrt` | no | `face_pipeline_create_tensorrt` | ONNX Runtime, TensorRT EP |
+
+All variants share the same `face_pipeline_process` / `face_pipeline_embed` / `face_pipeline_destroy` / `face_pipeline_results_free` functions.
 
 ## Memory management
 
@@ -490,7 +504,17 @@ All unsafe operations are confined to the FFI boundary layer. The actual inferen
 
 ## Pre-built binaries
 
-May be in future there will be pre-built `libod_bridge.so` / `libod_bridge.a` for Linux x86_64 in [GitHub Releases](https://github.com/LdDl/od-bridge/releases). This way consumers don't need a Rust toolchain, but I don't have that much time to maintain it right now.
+Pre-built `libod_bridge.so` / `libod_bridge.a` for Linux x86_64 and aarch64 are available in [GitHub Releases](https://github.com/LdDl/od-bridge/releases). This way consumers don't need a Rust toolchain.
+
+```bash
+# Download and install (no Rust required)
+curl -L https://github.com/LdDl/od-bridge/releases/download/vX.Y.Z/od-bridge-linux-amd64.tar.gz | tar xz
+cd od-bridge-linux-amd64
+./install.sh                # installs to /usr/local
+# ./install.sh /opt/custom  # or custom prefix
+```
+
+Each release includes CPU and CUDA variants. See the [release workflow](.github/workflows/release.yml) for details.
 
 ## License
 
