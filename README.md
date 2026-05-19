@@ -81,7 +81,7 @@ The `cbindgen` configuration lives in [cbindgen.toml](cbindgen.toml).
 
 ## Installation
 
-After building, install the shared library, header, and pkg-config file:
+After building, install the shared library, static library, header, and pkg-config file:
 
 ```bash
 sudo mkdir -p /usr/local/include/od-bridge
@@ -91,12 +91,13 @@ PC_DIR=$(pkg-config --variable pc_path pkg-config | cut -d: -f1)
 sudo cp od_bridge.pc "$PC_DIR/"
 
 sudo cp target/release/libod_bridge.so /usr/local/lib/
+sudo cp target/release/libod_bridge.a  /usr/local/lib/
 
 # If built with --features cuda (or tensorrt), install ORT provider libraries:
 # sudo cp target/release/libonnxruntime_providers_cuda.so /usr/local/lib/
 # sudo cp target/release/libonnxruntime_providers_shared.so /usr/local/lib/
 
-# Ensure /usr/local/lib is in the linker search path (needed on some distros, e.g. Arch (I use it btw))
+# Ensure /usr/local/lib is in the linker search path (needed on some distros, e.g. Arch)
 echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
 sudo ldconfig
 ```
