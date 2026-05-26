@@ -2,6 +2,11 @@ fn main() {
     let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let out_dir = std::env::var("OUT_DIR").unwrap();
 
+    // Compile glibc compat shims (see compat.c)
+    cc::Build::new()
+        .file("compat.c")
+        .compile("compat");
+
     // Generate C header into crate root (for user convenience and installation)
     cbindgen::Builder::new()
         .with_crate(&crate_dir)

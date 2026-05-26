@@ -1,6 +1,6 @@
 [package]
 name = "od-bridge"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 authors = ["LdDl <sexykdi@gmail.com>"]
 description = "C ABI bridge for od_opencv, designed for Go CGO integration"
@@ -29,3 +29,4 @@ image = "0.25.10"
 
 [build-dependencies]
 cbindgen = "0.29.2"
+cc = "1"

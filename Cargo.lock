@@ -918,9 +918,10 @@ dependencies = [
 
 [[package]]
 name = "od-bridge"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "cbindgen",
+ "cc",
  "image",
  "ndarray",
  "od_opencv",
