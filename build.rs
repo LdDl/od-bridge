@@ -7,6 +7,16 @@ fn main() {
         .file("compat.c")
         .compile("compat");
 
+    // Force compat symbols into the dynamic symbol table so ORT's PIC code
+    // can resolve __isoc23_* at runtime on glibc < 2.38.
+    // Rust's version script hides all non-Rust symbols under local: *, so we
+    // append our own version script that explicitly globalises these three.
+    let compat_map = std::path::PathBuf::from(&out_dir).join("compat.map");
+    std::fs::write(&compat_map,
+        "{ global: __isoc23_strtol; __isoc23_strtoll; __isoc23_strtoull; };\n"
+    ).expect("write compat.map");
+    println!("cargo:rustc-link-arg=-Wl,--version-script={}", compat_map.display());
+
     // Generate C header into crate root (for user convenience and installation)
     cbindgen::Builder::new()
         .with_crate(&crate_dir)

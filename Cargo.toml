@@ -1,6 +1,6 @@
 [package]
 name = "od-bridge"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 authors = ["LdDl <sexykdi@gmail.com>"]
 description = "C ABI bridge for od_opencv, designed for Go CGO integration"
