@@ -9,13 +9,13 @@ fn main() {
 
     // Force compat symbols into the dynamic symbol table so ORT's PIC code
     // can resolve __isoc23_* at runtime on glibc < 2.38.
-    // Rust's version script hides all non-Rust symbols under local: *, so we
-    // append our own version script that explicitly globalises these three.
-    let compat_map = std::path::PathBuf::from(&out_dir).join("compat.map");
-    std::fs::write(&compat_map,
-        "{ global: __isoc23_strtol; __isoc23_strtoll; __isoc23_strtoull; };\n"
-    ).expect("write compat.map");
-    println!("cargo:rustc-link-arg=-Wl,--version-script={}", compat_map.display());
+    // We use --dynamic-list (not --version-script) to avoid conflicting with
+    // the version script that Rust already passes to the linker.
+    let dynlist = std::path::PathBuf::from(&out_dir).join("compat.dynlist");
+    std::fs::write(&dynlist,
+        "{ __isoc23_strtol; __isoc23_strtoll; __isoc23_strtoull; };\n"
+    ).expect("write compat.dynlist");
+    println!("cargo:rustc-link-arg=-Wl,--dynamic-list={}", dynlist.display());
 
     // Generate C header into crate root (for user convenience and installation)
     cbindgen::Builder::new()
